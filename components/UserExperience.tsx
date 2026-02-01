@@ -32,7 +32,9 @@ import {
   ShoppingBag,
   CreditCard,
   Globe,
-  Building
+  Building,
+  Database,
+  Cloud
 } from 'lucide-react';
 import BillForm from './BillForm';
 import InvoiceForm from './InvoiceForm';
@@ -44,6 +46,7 @@ import SalesOrderForm from './SalesOrderForm';
 import DeliveryNoteForm from './DeliveryNoteForm';
 import BillPaymentForm from './BillPaymentForm';
 import ReportsManager from './ReportsManager';
+import { supabase, checkConnection } from '../supabase';
 
 type Section = 'dashboard' | 'sales' | 'purchases' | 'banking' | 'finance' | 'inventory' | 'reports' | 'settings';
 type SalesSubSection = 'orders' | 'deliveries' | 'invoices';
@@ -87,6 +90,7 @@ const UserExperience: React.FC = () => {
   const [currentTenant, setCurrentTenant] = useState<Tenant>(tenants[0]);
   const [currentRole, setCurrentRole] = useState<Role>('ADMIN');
   const [showTenantPicker, setShowTenantPicker] = useState(false);
+  const [dbStatus, setDbStatus] = useState<{ connected: boolean; error: string | null; checking: boolean }>({ connected: false, error: null, checking: true });
   
   const [isCreatingInvoice, setIsCreatingInvoice] = useState(false);
   const [isCreatingSO, setIsCreatingSO] = useState(false);
@@ -105,6 +109,15 @@ const UserExperience: React.FC = () => {
     canManageUsers: currentRole === 'ADMIN',
     canPostDocuments: currentRole === 'ADMIN' || currentRole === 'ACCOUNTANT',
   };
+
+  useEffect(() => {
+    const verifyDb = async () => {
+      setDbStatus(prev => ({ ...prev, checking: true }));
+      const result = await checkConnection();
+      setDbStatus({ connected: result.connected, error: result.error, checking: false });
+    };
+    verifyDb();
+  }, []);
 
   const handleUpdateCountry = (countryCode: string) => {
     setCurrentTenant(prev => ({ ...prev, country: countryCode }));
@@ -144,8 +157,17 @@ const UserExperience: React.FC = () => {
             ))}
           </div>
         </div>
-        <div className="hidden lg:block text-[10px] font-mono text-slate-500">
-          Currency: {localization.currency} | Default Tax: {localization.vatRate * 100}%
+        <div className="flex items-center gap-4">
+          <div className={`flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-black border transition-all ${
+            dbStatus.checking ? 'bg-slate-800 border-slate-700 text-slate-400' :
+            dbStatus.connected ? 'bg-emerald-900/50 border-emerald-700 text-emerald-400' : 'bg-rose-900/50 border-rose-700 text-rose-400'
+          }`}>
+            <Database size={12} className={dbStatus.checking ? 'animate-pulse' : ''} />
+            {dbStatus.checking ? 'PROBING CLOUD...' : dbStatus.connected ? 'STORAGE: CLOUD' : 'STORAGE: LOCAL ONLY'}
+          </div>
+          <div className="hidden lg:block text-[10px] font-mono text-slate-500">
+            {localization.currency} | {localization.taxLabel}
+          </div>
         </div>
       </div>
 
@@ -185,7 +207,7 @@ const UserExperience: React.FC = () => {
             {permissions.canManageFinance && <SidebarItem active={currentSection === 'finance'} onClick={() => { setCurrentSection('finance'); closeForms(); }} icon={<Scale size={20} />} label="Finance" />}
             <SidebarItem active={currentSection === 'banking'} onClick={() => { setCurrentSection('banking'); closeForms(); }} icon={<Wallet size={20} />} label="Banking" />
             <SidebarItem active={currentSection === 'reports'} onClick={() => { setCurrentSection('reports'); closeForms(); }} icon={<BarChart3 size={20} />} label="Reports" />
-            <SidebarItem active={currentSection === 'settings'} onClick={() => { setCurrentSection('settings'); closeForms(); }} icon={<Settings size={20} />} label="Company Profile" />
+            <SidebarItem active={currentSection === 'settings'} onClick={() => { setCurrentSection('settings'); closeForms(); }} icon={<Settings size={20} />} label="Company Settings" />
           </nav>
         </aside>
 
@@ -200,11 +222,18 @@ const UserExperience: React.FC = () => {
                 {isCreatingInvoice ? 'New Invoice' : currentSection}
               </h4>
             </div>
-            {!isCreatingInvoice && !isCreatingSO && !isCreatingDN && !isCreatingBill && !isPayingBill && !isCreatingJournal && !isViewingCoA && (
-              <button onClick={() => { if(currentSection === 'sales') setIsCreatingInvoice(true); else if(currentSection === 'purchases') setIsCreatingBill(true); }} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-blue-700 shadow-lg transition-all active:scale-95">
-                <Plus size={16} /> <span className="hidden sm:inline">Create New</span>
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {!dbStatus.connected && !dbStatus.checking && (
+                <div className="hidden sm:flex items-center gap-1.5 text-[10px] font-black text-rose-500 uppercase animate-pulse">
+                  <AlertCircle size={12} /> Sync Inactive
+                </div>
+              )}
+              {!isCreatingInvoice && !isCreatingSO && !isCreatingDN && !isCreatingBill && !isPayingBill && !isCreatingJournal && !isViewingCoA && (
+                <button onClick={() => { if(currentSection === 'sales') setIsCreatingInvoice(true); else if(currentSection === 'purchases') setIsCreatingBill(true); }} className="bg-blue-600 text-white px-4 py-1.5 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-blue-700 shadow-lg transition-all active:scale-95">
+                  <Plus size={16} /> <span className="hidden sm:inline">Create New</span>
+                </button>
+              )}
+            </div>
           </header>
 
           <div className="p-4 sm:p-8 overflow-y-auto max-h-[calc(100vh-16rem)]">
@@ -223,7 +252,7 @@ const UserExperience: React.FC = () => {
             {currentSection === 'inventory' && <InventoryManager localization={localization} />}
             {currentSection === 'finance' && <FinanceSimulation localization={localization} />}
             {currentSection === 'reports' && <ReportsManager localization={localization} />}
-            {currentSection === 'settings' && <CompanySettings tenant={currentTenant} onUpdateCountry={handleUpdateCountry} />}
+            {currentSection === 'settings' && <CompanySettings tenant={currentTenant} onUpdateCountry={handleUpdateCountry} dbStatus={dbStatus} />}
           </div>
         </main>
       </div>
@@ -231,24 +260,24 @@ const UserExperience: React.FC = () => {
   );
 };
 
-const CompanySettings: React.FC<{ tenant: Tenant; onUpdateCountry: (code: string) => void }> = ({ tenant, onUpdateCountry }) => (
+const CompanySettings: React.FC<{ tenant: Tenant; onUpdateCountry: (code: string) => void; dbStatus: any }> = ({ tenant, onUpdateCountry, dbStatus }) => (
   <div className="max-w-4xl mx-auto space-y-8 animate-in fade-in duration-500">
     <div className="p-8 bg-slate-50 border border-slate-200 rounded-3xl">
       <div className="flex items-center gap-4 mb-8">
         <div className="p-3 bg-blue-600 text-white rounded-2xl"><Building size={24} /></div>
         <div>
-          <h3 className="text-xl font-black text-slate-900">Company Identity</h3>
-          <p className="text-sm text-slate-500">Define your regional taxation and reporting profile.</p>
+          <h3 className="text-xl font-black text-slate-900">Infrastructure Profile</h3>
+          <p className="text-sm text-slate-500">Manage your company's identity and cloud connectivity.</p>
         </div>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
         <div className="space-y-1.5">
-          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Company Name</label>
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Legal Entity Name</label>
           <input type="text" className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold" defaultValue={tenant.name} />
         </div>
         <div className="space-y-1.5">
-          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Registration Country</label>
+          <label className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Primary Tax Jurisdiction</label>
           <select 
             className="w-full px-4 py-2.5 bg-white border border-slate-200 rounded-xl text-sm font-bold appearance-none"
             value={tenant.country}
@@ -261,24 +290,43 @@ const CompanySettings: React.FC<{ tenant: Tenant; onUpdateCountry: (code: string
         </div>
       </div>
 
-      <div className="mt-8 p-6 bg-white border border-slate-200 rounded-2xl flex gap-6">
-        <div className="flex-1 space-y-2">
-          <h4 className="text-xs font-black text-slate-900 uppercase">Local Tax Rules</h4>
-          <div className="space-y-1">
-            <p className="text-xs text-slate-500">Tax Type: <span className="font-bold text-slate-700">{COUNTRIES[tenant.country].taxLabel}</span></p>
-            <p className="text-xs text-slate-500">Default Rate: <span className="font-bold text-slate-700">{COUNTRIES[tenant.country].vatRate * 100}%</span></p>
-            <p className="text-xs text-slate-500">Reporting Currency: <span className="font-bold text-slate-700">{COUNTRIES[tenant.country].currency}</span></p>
+      <div className="mt-8 p-6 bg-white border border-slate-200 rounded-2xl flex flex-col md:flex-row gap-6">
+        <div className="flex-1 space-y-3">
+          <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest border-b pb-2">Fiscal Parameters</h4>
+          <div className="space-y-2">
+            <div className="flex justify-between items-center"><span className="text-xs text-slate-500">Tax Mechanism</span><span className="text-xs font-bold text-slate-700">{COUNTRIES[tenant.country].taxLabel}</span></div>
+            <div className="flex justify-between items-center"><span className="text-xs text-slate-500">Statutory Rate</span><span className="text-xs font-bold text-slate-700">{COUNTRIES[tenant.country].vatRate * 100}%</span></div>
+            <div className="flex justify-between items-center"><span className="text-xs text-slate-500">Functional Currency</span><span className="text-xs font-bold text-slate-700">{COUNTRIES[tenant.country].currency}</span></div>
           </div>
         </div>
-        <div className="w-[1px] bg-slate-100" />
-        <div className="flex-1">
-           <div className="flex items-center gap-2 mb-2">
-             <Globe className="text-blue-600" size={14} />
-             <span className="text-xs font-black text-slate-900 uppercase">Legal Compliance</span>
+        <div className="w-[1px] bg-slate-100 hidden md:block" />
+        <div className="flex-1 space-y-3">
+           <div className="flex items-center gap-2">
+             <Cloud className={dbStatus.connected ? 'text-blue-500' : 'text-slate-400'} size={14} />
+             <span className="text-[10px] font-black text-slate-900 uppercase tracking-widest">Database Bridge</span>
            </div>
-           <p className="text-[10px] text-slate-400 leading-relaxed italic">
-             All tax calculations are adjusted according to the {COUNTRIES[tenant.country].name} legal framework. Invoice headers will reflect mandatory regional disclosures.
-           </p>
+           {dbStatus.connected ? (
+             <div className="space-y-2">
+               <div className="flex items-center gap-2 p-2 bg-emerald-50 rounded-lg border border-emerald-100">
+                  <Check size={14} className="text-emerald-500" />
+                  <span className="text-[10px] font-black text-emerald-700 uppercase">Operational Status: Healthy</span>
+               </div>
+               <p className="text-[10px] text-slate-500 leading-relaxed">
+                 Syncing directly to Supabase. Every ledger transaction is backed by cloud-grade durability and RLS security.
+               </p>
+             </div>
+           ) : (
+             <div className="space-y-3">
+               <div className="flex items-center gap-2 p-2 bg-rose-50 rounded-lg border border-rose-100">
+                  <AlertCircle size={14} className="text-rose-500" />
+                  <span className="text-[10px] font-black text-rose-700 uppercase">Sync Status: Halted</span>
+               </div>
+               <p className="text-[10px] text-slate-500 leading-relaxed italic">
+                 Cloud connection disabled. Verify that <code>SUPABASE_URL</code> and <code>SUPABASE_ANON_KEY</code> are present in your environment configuration.
+               </p>
+               <button className="w-full py-2 bg-slate-900 text-white rounded-lg text-[10px] font-black uppercase tracking-widest hover:bg-slate-800 transition-all">Reconnect Storage</button>
+             </div>
+           )}
         </div>
       </div>
     </div>
